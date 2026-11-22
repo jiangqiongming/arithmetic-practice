@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>四则运算</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid;
+    place-items: center;
+    background: linear-gradient(160deg, #0f172a, #1e293b);
+    color: #f1f5f9;
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    padding: 20px;
+  }
+  .card {
+    width: min(440px, 100%);
+    background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 18px;
+    padding: 26px 24px 22px;
+    backdrop-filter: blur(8px);
+  }
+  h1 { margin: 0 0 4px; font-size: 20px; font-weight: 600; letter-spacing: .04em; }
+  p.hint { margin: 0 0 18px; font-size: 13px; color: #94a3b8; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  input, select {
+    height: 52px; border-radius: 12px;
+    border: 1px solid rgba(255,255,255,.16);
+    background: rgba(15,23,42,.55);
+    color: #f1f5f9; font-size: 20px; text-align: center;
+    outline: none; transition: border-color .15s, box-shadow .15s;
+  }
+  input { flex: 1; min-width: 0; padding: 0 10px; }
+  input:focus, select:focus { border-color: #38bdf8; box-shadow: 0 0 0 3px rgba(56,189,248,.18); }
+  select { width: 84px; cursor: pointer; appearance: none; }
+  select option { background: #0f172a; }
+  .eq {
+    margin: 18px 0 0; display: flex; align-items: baseline; gap: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .eq .label { font-size: 13px; color: #94a3b8; }
+  .eq output {
+    font-size: 40px; font-weight: 700; color: #38bdf8;
+    word-break: break-all; line-height: 1.15;
+  }
+  .eq output.error { font-size: 18px; color: #f87171; font-weight: 500; }
+  .ops { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 18px; }
+  button {
+    height: 44px; border-radius: 12px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,.14);
+    background: rgba(255,255,255,.07);
+    color: #e2e8f0; font-size: 16px;
+    transition: background .15s, transform .06s;
+  }
+  button:hover { background: rgba(56,189,248,.18); border-color: rgba(56,189,248,.45); }
+  button:active { transform: translateY(1px); }
+  button.primary { background: #0284c7; border-color: #0284c7; color: #fff; font-weight: 600; }
+  button.primary:hover { background: #0ea5e9; }
+  footer { margin-top: 16px; font-size: 12px; color: #64748b; text-align: center; }
+</style>
+</head>
+<body>
+<main class="card">
+  <h1>四则运算</h1>
+  <p class="hint">输入两个数，选择运算符，结果实时计算</p>
+
+  <div class="row">
+    <input id="a" type="number" step="any" inputmode="decimal" placeholder="0" autocomplete="off">
+    <select id="op" aria-label="运算符">
+      <option value="+">＋</option>
+      <option value="-">－</option>
+      <option value="*">×</option>
+      <option value="/">÷</option>
+    </select>
+    <input id="b" type="number" step="any" inputmode="decimal" placeholder="0" autocomplete="off">
+  </div>
+
+  <div class="eq">
+    <span class="label">＝</span>
+    <output id="out">—</output>
+  </div>
+
+  <div class="ops">
+    <button data-op="+">＋</button>
+    <button data-op="-">－</button>
+    <button data-op="*">×</button>
+    <button data-op="/">÷</button>
+  </div>
+
+  <footer>纯静态页面 · 无后端 · 无数据上传</footer>
+</main>
+<script>
+  const a = document.getElementById('a');
+  const b = document.getElementById('b');
+  const op = document.getElementById('op');
+  const out = document.getElementById('out');
+
+  function calc() {
+    const x = parseFloat(a.value);
+    const y = parseFloat(b.value);
+    out.classList.remove('error');
+    if (a.value === '' || b.value === '' || Number.isNaN(x) || Number.isNaN(y)) {
+      out.textContent = '—';
+      return;
+    }
+    let r;
+    switch (op.value) {
+      case '+': r = x + y; break;
+      case '-': r = x - y; break;
+      case '*': r = x * y; break;
+      case '/':
+        if (y === 0) { out.textContent = '除数不能为 0'; out.classList.add('error'); return; }
+        r = x / y; break;
+    }
+    out.textContent = Number.isFinite(r) ? String(Math.round(r * 1e10) / 1e10) : String(r);
+  }
+
+  [a, b, op].forEach(el => el.addEventListener('input', calc));
+  document.querySelectorAll('button[data-op]').forEach(btn => {
+    btn.addEventListener('click', () => { op.value = btn.dataset.op; calc(); });
+  });
+  calc();
+</script>
+</body>
+</html>
