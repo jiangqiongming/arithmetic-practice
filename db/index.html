@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>口算练习 · 带数据库的排行榜</title>
+<style>
+  :root { color-scheme: light dark; --bg:#0f1115; --card:#171a21; --line:#262b36; --fg:#e8ebf2; --dim:#98a2b3; --ok:#3ccf91; --bad:#ff6b6b; --accent:#5b8cff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif; }
+  main { max-width:680px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:var(--dim); font-size:13px; margin-bottom:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; margin-bottom:16px; }
+  label { display:block; font-size:13px; color:var(--dim); margin-bottom:6px; }
+  input { width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); background:#0d0f14; color:var(--fg); font-size:15px; }
+  button { font:inherit; cursor:pointer; border-radius:10px; border:1px solid var(--line); background:#20242d; color:var(--fg); padding:10px 14px; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .row { display:flex; gap:10px; align-items:center; }
+  .q { font-size:34px; font-weight:600; letter-spacing:1px; text-align:center; margin:18px 0 20px; font-variant-numeric:tabular-nums; }
+  .opts { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .opt { padding:16px 0; font-size:22px; text-align:center; background:#1d222b; }
+  .opt.correct { background:rgba(60,207,145,.18); border-color:var(--ok); }
+  .opt.wrong { background:rgba(255,107,107,.16); border-color:var(--bad); }
+  .meta { display:flex; justify-content:space-between; color:var(--dim); font-size:13px; margin-bottom:6px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-weight:500; font-size:12px; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .status { font-size:13px; color:var(--dim); margin-top:10px; }
+  .status.err { color:var(--bad); }
+  .hide { display:none; }
+  .stat { font-size:40px; font-weight:700; text-align:center; font-variant-numeric:tabular-nums; }
+  .center { text-align:center; }
+</style>
+</head>
+<body>
+<main>
+  <h1>口算练习</h1>
+  <div class="sub">10 道题 · 成绩写入 Supabase · 按正确数→用时排名</div>
+
+  <section class="card" id="startCard">
+    <label for="nick">你的昵称（1–20 字）</label>
+    <input id="nick" maxlength="20" placeholder="比如：小明">
+    <div class="row" style="margin-top:14px">
+      <button class="primary" id="startBtn">开始练习</button>
+      <span class="status" id="startMsg"></span>
+    </div>
+  </section>
+
+  <section class="card hide" id="quizCard">
+    <div class="meta"><span id="progress">第 1 / 10 题</span><span id="timer">0.0s</span></div>
+    <div class="q" id="question">—</div>
+    <div class="opts" id="opts"></div>
+  </section>
+
+  <section class="card hide" id="doneCard">
+    <div class="stat" id="score">0 / 10</div>
+    <div class="center sub" id="detail" style="margin:6px 0 16px"></div>
+    <div class="center"><button class="primary" id="againBtn">再练一次</button></div>
+    <div class="status center" id="saveMsg"></div>
+  </section>
+
+  <section class="card">
+    <div class="row" style="justify-content:space-between;margin-bottom:8px">
+      <strong style="font-size:15px">排行榜 · 前 10</strong>
+      <button id="refreshBtn" style="padding:6px 10px;font-size:13px">刷新</button>
+    </div>
+    <table>
+      <thead><tr><th style="width:36px">#</th><th>昵称</th><th class="num">正确</th><th class="num">用时</th></tr></thead>
+      <tbody id="board"><tr><td colspan="4" style="color:var(--dim)">加载中…</td></tr></tbody>
+    </table>
+    <div class="status" id="boardMsg"></div>
+  </section>
+</main>
+<script>
+const SUPABASE_URL = "https://ndynhydeoqgjzynzneav.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5keW5oeWRlb3Fnanp5bnpuZWF2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUzODk1ODIsImV4cCI6MjExMDk2NTU4Mn0.M8LN_2rQwzJAdgHqvS0iT7EFTKPeUVVkzZti4pYsTQk";
+const TOTAL = 10;
+const H = { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY };
+
+const $ = (id) => document.getElementById(id);
+let quiz = [], idx = 0, correct = 0, startedAt = 0, ticker = null, locked = false;
+
+function rnd(n) { return Math.floor(Math.random() * n); }
+function makeQuestion() {
+  const op = ['+', '-', '×'][rnd(3)];
+  let a, b, ans;
+  if (op === '+') { a = 2 + rnd(48); b = 2 + rnd(48); ans = a + b; }
+  else if (op === '-') { a = 10 + rnd(60); b = 2 + rnd(a - 2); ans = a - b; }
+  else { a = 2 + rnd(11); b = 2 + rnd(9); ans = a * b; }
+  const set = new Set([ans]);
+  while (set.size < 4) {
+    const d = ans + (rnd(2) ? 1 : -1) * (1 + rnd(9));
+    if (d >= 0) set.add(d);
+  }
+  const opts = [...set].sort(() => Math.random() - 0.5);
+  return { text: a + ' ' + op + ' ' + b + ' = ?', ans: ans, opts: opts };
+}
+
+function startTimer() {
+  startedAt = Date.now();
+  clearInterval(ticker);
+  ticker = setInterval(() => { $('timer').textContent = ((Date.now() - startedAt) / 1000).toFixed(1) + 's'; }, 100);
+}
+
+function render() {
+  const q = quiz[idx];
+  $('progress').textContent = '第 ' + (idx + 1) + ' / ' + TOTAL + ' 题';
+  $('question').textContent = q.text;
+  const box = $('opts');
+  box.innerHTML = '';
+  q.opts.forEach((v) => {
+    const btn = document.createElement('button');
+    btn.className = 'opt';
+    btn.textContent = String(v);
+    btn.onclick = () => answer(btn, v);
+    box.appendChild(btn);
+  });
+  locked = false;
+}
+
+function answer(btn, v) {
+  if (locked) return;
+  locked = true;
+  const q = quiz[idx];
+  if (v === q.ans) { correct++; btn.classList.add('correct'); }
+  else {
+    btn.classList.add('wrong');
+    [...$('opts').children].forEach((b) => { if (Number(b.textContent) === q.ans) b.classList.add('correct'); });
+  }
+  setTimeout(() => {
+    idx++;
+    if (idx < TOTAL) render(); else finish();
+  }, v === q.ans ? 260 : 620);
+}
+
+async function finish() {
+  clearInterval(ticker);
+  const seconds = Number(((Date.now() - startedAt) / 1000).toFixed(1));
+  $('quizCard').classList.add('hide');
+  $('doneCard').classList.remove('hide');
+  $('score').textContent = correct + ' / ' + TOTAL;
+  $('detail').textContent = '用时 ' + seconds + ' 秒';
+  $('saveMsg').textContent = '正在保存成绩…';
+  const nick = (localStorage.getItem('nick') || '匿名同学').slice(0, 20);
+  try {
+    const res = await fetch(SUPABASE_URL + '/rest/v1/attempts', {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }, H),
+      body: JSON.stringify({ nickname: nick, correct: correct, total: TOTAL, seconds: Math.round(seconds) })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + (await res.text()).slice(0, 120));
+    $('saveMsg').textContent = '成绩已写入数据库';
+    await loadBoard();
+  } catch (e) {
+    $('saveMsg').textContent = '保存失败：' + e.message;
+  }
+}
+
+async function loadBoard() {
+  const tbody = $('board');
+  $('boardMsg').textContent = '';
+  try {
+    const url = SUPABASE_URL + '/rest/v1/attempts?select=nickname,correct,total,seconds&order=correct.desc,seconds.asc&limit=10';
+    const res = await fetch(url, { headers: H });
+    if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + (await res.text()).slice(0, 120));
+    const rows = await res.json();
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="4" style="color:var(--dim)">还没有记录，来当第一个</td></tr>'; return; }
+    tbody.innerHTML = '';
+    rows.forEach((r, i) => {
+      const tr = document.createElement('tr');
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : String(i + 1);
+      tr.innerHTML = '<td>' + medal + '</td><td>' + escapeHtml(r.nickname) + '</td>' +
+        '<td class="num">' + r.correct + '/' + r.total + '</td>' +
+        '<td class="num">' + (r.seconds == null ? '—' : r.seconds + 's') + '</td>';
+      tbody.appendChild(tr);
+    });
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--bad)">读取失败</td></tr>';
+    $('boardMsg').textContent = '数据库返回：' + e.message;
+    $('boardMsg').className = 'status err';
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+$('startBtn').onclick = () => {
+  const nick = $('nick').value.trim();
+  if (!nick) { $('startMsg').textContent = '先填个昵称'; return; }
+  localStorage.setItem('nick', nick);
+  $('startMsg').textContent = '';
+  quiz = Array.from({ length: TOTAL }, makeQuestion);
+  idx = 0; correct = 0;
+  $('startCard').classList.add('hide');
+  $('doneCard').classList.add('hide');
+  $('quizCard').classList.remove('hide');
+  startTimer();
+  render();
+};
+$('againBtn').onclick = () => {
+  $('doneCard').classList.add('hide');
+  $('startCard').classList.remove('hide');
+  $('nick').value = localStorage.getItem('nick') || '';
+};
+$('refreshBtn').onclick = loadBoard;
+
+$('nick').value = localStorage.getItem('nick') || '';
+loadBoard();
+</script>
+</body>
+</html>
